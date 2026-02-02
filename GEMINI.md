@@ -15,15 +15,20 @@ Este documento resume las acciones realizadas por el agente Gemini para sanear y
 ### **2. Nueva Arquitectura (Fase 2)**
 - **User-Agnostic:** Se han eliminado todas las rutas `/home/kumonko/...` harcoded. Ahora el sistema utiliza rutas relativas y variables de entorno.
 - **Estructura Organizada:**
-    - `services/`: Contenedores con Dockerfiles personalizados para Ollama Manager y MusicGen.
-    - `api-gateway/`: Puente Express.js con seguridad (API_KEY).
+    - `services/`: Contenedores con Dockerfiles personalizados para Ollama Manager y MusicGen [SKIPPED].
+    - `imagegen/`: Implementado con ComfyUI sobre ROCm (PyTorch latest/Ubuntu 24.04).
+    - `api-gateway/`: Puente Express.js (REVERTIDO/Pendiente).
     - `storage/`: Almacenamiento persistente local.
 - **Docker Compose:** Configurado con red interna (`ai-network`) y comunicación por nombres de servicio.
 
-### **3. API Gateway (Fase 3)**
-- **Express Server:** Implementado con proxy para servicios de texto, imagen, audio y video.
-- **Configuración:** Centralizada en `api-gateway/config/services.js`.
-- **Dependencias:** Instaladas (`express`, `axios`, `cors`, etc.).
+### **3. Pruebas de Imagen (31 de enero de 2026)**
+- **Modelo:** Juggernaut XL v9 (SDXL).
+- **txt2img:** Generación exitosa de retrato realista de Elfa de la Noche.
+- **img2img:** Transformación exitosa de `genericElf.png` (captura WoW) a versión realista.
+- **Ubicación:** Resultados guardados en `storage/imagegen/output/`.
+
+### **4. API Gateway (Fase 3) - REVERTIDO**
+- *El servicio de API Gateway ha sido eliminado y su arquitectura está pendiente de re-definición (punto 5.6.1).*
 
 ## **Tareas Pendientes (Tras Reinicio)**
 1. **Verificar Grupos:** Ejecutar `groups` para confirmar `video` y `render`.
@@ -42,3 +47,40 @@ Este documento resume las acciones realizadas por el agente Gemini para sanear y
 
 ---
 *Fin del registro. El sistema está listo para el despliegue tras el reinicio de sesión.*
+
+## **Estado de la Intervención (1 de febrero de 2026)**
+
+### **5. Saneamiento y Optimización de Almacenamiento**
+- **Eliminación de Servicios Obsoletos:**
+    - `acestep`: Eliminado por completo (liberados ~8 GB de storage y ~80 GB de caché/imágenes Docker).
+    - `musicgen`: Eliminado por completo para liberar recursos.
+- **Espacio Recuperado:** Aproximadamente **88.5 GB** adicionales tras la purga de contenedores y volúmenes de estos servicios.
+
+### **6. Evolución de ImageGen a VideoGen (AnimateDiff)**
+- **Consolidación:** Se ha decidido no crear un contenedor separado para video para optimizar la VRAM (12GB). `imagegen` ahora gestiona tanto imagen como video.
+- **Implementación:**
+    - Instalación de nodos `ComfyUI-AnimateDiff-Evolved` y `ComfyUI-VideoHelperSuite`.
+    - Dependencias añadidas: `ffmpeg`, `opencv-python`, `imageio-ffmpeg`.
+- **Modelos Instalados:**
+    - Checkpoint SD 1.5: `v1-5-pruned-emaonly.safetensors` (necesario para AnimateDiff).
+    - Motion Module: `mm_sd_v15_v2.ckpt` (AnimateDiff v2).
+- **Pruebas de Video:** Generación exitosa de animación de 8 frames (`test_animatediff`).
+
+### **7. Actualización de Ollama**
+- **Modelo:** Se ha validado el uso de `llama3.2:latest` (3.2B) como modelo base por su eficiencia en 12GB de VRAM.
+
+### 8. Verificación de Integridad
+- **Suite de Tests:** Actualizada en `tests/test_behavior.py` y `tests/test_gateway.py` cubriendo:
+    - Ollama (Tags y Generación con llama3.2).
+    - Imagen (SDXL txt2img e img2img).
+    - Video (AnimateDiff).
+    - API Gateway (Proxy, Individual y Orchestrated endpoints).
+- **Resultado:** Todos los tests funcionales (10/10 en el Gateway).
+
+### 9. API Gateway (Fase 3) - COMPLETADO
+- **Tecnología:** Node.js Express.
+- **Funcionalidad:**
+    - Proxy autenticado a Ollama y ComfyUI.
+    - Endpoints simplificados (`/text/gen`, `/image/gen`, etc.).
+    - Orquestación avanzada (`/agent/character`).
+- **Seguridad:** Validación de `x-api-key`.

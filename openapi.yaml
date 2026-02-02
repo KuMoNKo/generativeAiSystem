@@ -1,0 +1,399 @@
+openapi: 3.0.3
+info:
+  title: Generative AI Platform API
+  description: API documentation for the local Generative AI services (Ollama and Imagegen/ComfyUI).
+  version: 1.0.0
+servers:
+  - url: http://localhost:11000
+    description: Ollama (LLM Service)
+  - url: http://localhost:11002
+    description: Imagegen & Videogen (ComfyUI Service with AnimateDiff support)
+
+paths:
+  # OLLAMA ENDPOINTS
+  /api/generate:
+    post:                                                                                                                                                                                                                                                                                                                        │
+      summary: Generate a completion                                                                                                                                                                                                                                                                                             │
+      description: Generate a response for a given prompt using a specific model.                                                                                                                                                                                                                                                │
+      tags:                                                                                                                                                                                                                                                                                                                      │
+        - Ollama                                                                                                                                                                                                                                                                                                                 │
+      requestBody:                                                                                                                                                                                                                                                                                                               │
+        required: true                                                                                                                                                                                                                                                                                                           │
+        content:                                                                                                                                                                                                                                                                                                                 │
+          application/json:                                                                                                                                                                                                                                                                                                      │
+            schema:                                                                                                                                                                                                                                                                                                              │
+              type: object                                                                                                                                                                                                                                                                                                       │
+              properties:                                                                                                                                                                                                                                                                                                        │
+                model:                                                                                                                                                                                                                                                                                                           │
+                  type: string                                                                                                                                                                                                                                                                                                   │
+                  example: llama3                                                                                                                                                                                                                                                                                                │
+                prompt:                                                                                                                                                                                                                                                                                                          │
+                  type: string                                                                                                                                                                                                                                                                                                   │
+                  example: "Explain quantum physics in one sentence."                                                                                                                                                                                                                                                            │
+                stream:                                                                                                                                                                                                                                                                                                          │
+                  type: boolean                                                                                                                                                                                                                                                                                                  │
+                  default: true                                                                                                                                                                                                                                                                                                  │
+      responses:                                                                                                                                                                                                                                                                                                                 │
+        '200':                                                                                                                                                                                                                                                                                                                   │
+          description: Successful generation                                                                                                                                                                                                                                                                                     │
+          content:                                                                                                                                                                                                                                                                                                               │
+            application/json:                                                                                                                                                                                                                                                                                                    │
+              schema:                                                                                                                                                                                                                                                                                                            │
+                type: object                                                                                                                                                                                                                                                                                                     │
+
+  /api/chat:                                                                                                                                                                                                                                                                                                                     │
+    post:                                                                                                                                                                                                                                                                                                                        │
+      summary: Generate a chat completion                                                                                                                                                                                                                                                                                        │
+      description: Generate a chat response for a list of messages.                                                                                                                                                                                                                                                              │
+      tags:                                                                                                                                                                                                                                                                                                                      │
+        - Ollama                                                                                                                                                                                                                                                                                                                 │
+      requestBody:                                                                                                                                                                                                                                                                                                               │
+        required: true                                                                                                                                                                                                                                                                                                           │
+        content:                                                                                                                                                                                                                                                                                                                 │
+          application/json:                                                                                                                                                                                                                                                                                                      │
+            schema:                                                                                                                                                                                                                                                                                                              │
+              type: object                                                                                                                                                                                                                                                                                                       │
+              properties:                                                                                                                                                                                                                                                                                                        │
+                model:                                                                                                                                                                                                                                                                                                           │
+                  type: string                                                                                                                                                                                                                                                                                                   │
+                  example: llama3                                                                                                                                                                                                                                                                                                │
+                messages:                                                                                                                                                                                                                                                                                                        │
+                  type: array                                                                                                                                                                                                                                                                                                    │
+                  items:                                                                                                                                                                                                                                                                                                         │
+                    type: object                                                                                                                                                                                                                                                                                                 │
+                    properties:                                                                                                                                                                                                                                                                                                  │
+                      role:                                                                                                                                                                                                                                                                                                      │
+                        type: string                                                                                                                                                                                                                                                                                             │
+                        enum: [system, user, assistant]                                                                                                                                                                                                                                                                          │
+                      content:                                                                                                                                                                                                                                                                                                   │
+                        type: string                                                                                                                                                                                                                                                                                             │
+                stream:                                                                                                                                                                                                                                                                                                          │
+                  type: boolean                                                                                                                                                                                                                                                                                                  │
+                  default: true                                                                                                                                                                                                                                                                                                  │
+      responses:                                                                                                                                                                                                                                                                                                                 │
+        '200':                                                                                                                                                                                                                                                                                                                   │
+          description: Successful chat generation                                                                                                                                                                                                                                                                                │
+                                                                                                                                                                                                                                                                                                                                │
+  /api/tags:                                                                                                                                                                                                                                                                                                                     │
+    get:                                                                                                                                                                                                                                                                                                                         │
+      summary: List local models                                                                                                                                                                                                                                                                                                 │
+      description: Get a list of models that are available locally.                                                                                                                                                                                                                                                              │
+      tags:                                                                                                                                                                                                                                                                                                                      │
+        - Ollama                                                                                                                                                                                                                                                                                                                 │
+      responses:                                                                                                                                                                                                                                                                                                                 │
+        '200':                                                                                                                                                                                                                                                                                                                   │
+          description: List of models                                                                                                                                                                                                                                                                                            │
+          content:                                                                                                                                                                                                                                                                                                               │
+            application/json:                                                                                                                                                                                                                                                                                                    │
+              schema:                                                                                                                                                                                                                                                                                                            │
+                type: object                                                                                                                                                                                                                                                                                                     │
+                properties:                                                                                                                                                                                                                                                                                                      │
+                  models:                                                                                                                                                                                                                                                                                                        │
+                    type: array                                                                                                                                                                                                                                                                                                  │
+                    items:                                                                                                                                                                                                                                                                                                       │
+                      type: object                                                                                                                                                                                                                                                                                               │
+
+  # IMAGEGEN & VIDEOGEN (COMFYUI) ENDPOINTS
+  /prompt:
+    post:
+      summary: Queue a new prompt (Image or Video)
+      description: |
+        Submit a workflow to ComfyUI for processing. 
+        Supports txt2img, img2img, and Video generation via AnimateDiff nodes.
+      tags:
+        - Imagegen
+        - Videogen
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                prompt:
+                  type: object
+                  description: The ComfyUI graph/workflow JSON. For video, include ADE_AnimateDiffLoaderWithContext and VHS_VideoCombine nodes.
+                client_id:
+                  type: string
+      responses:
+        '200':
+          description: Prompt queued successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  prompt_id:
+                    type: string
+
+  /history:
+    get:
+      summary: Get queue history
+      description: Retrieve the history of processed and pending prompts.
+      tags:
+        - Imagegen
+      responses:
+        '200':
+          description: Success
+
+  /view:
+    get:
+      summary: Get an image
+      description: Retrieve a generated image from the output folder.
+      tags:
+        - Imagegen
+      parameters:
+        - name: filename
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: subfolder
+          in: query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [output, input, temp]
+      responses:
+        '200':
+          description: The image file
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+  /upload/image:
+    post:
+      summary: Upload an image
+      description: Upload an image to the input folder for use in workflows.
+      tags:
+        - Imagegen
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Image uploaded successfully
+
+  # API GATEWAY ADVANCED ENDPOINTS (Port 8080)
+  /agent/character:
+    post:
+      summary: Create a full character entity
+      description: |
+        Generates history, appearance, skills, a portrait, and a short video 
+        from a simple description. Orchestrates Ollama and Imagegen.
+      tags:
+        - Orchestration
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                description:
+                  type: string
+                  example: "A cynical dwarf mechanic from a floating city."
+                include_video:
+                  type: boolean
+                  default: true
+      responses:
+        '200':
+          description: Character pack created
+
+  /text/expand:
+    post:
+      summary: Expand text with context
+      description: Uses a LLM to enrich a simple text or prompt based on a given context.
+      tags:
+        - Text
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                context:
+                  type: string
+                  description: "e.g., Dark Fantasy, Cyberpunk, etc."
+      responses:
+        '200':
+          description: Expanded text
+
+  /visual/generate-chain:
+    post:
+      summary: Prompt optimization and generation
+      description: |
+        1. Expands the user prompt using LLM.
+        2. Generates the image/video using the optimized prompt.
+      tags:
+        - Orchestration
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                prompt:
+                  type: string
+                type:
+                  type: string
+                  enum: [image, video]
+      responses:
+        '200':
+          description: Asset generated via optimized prompt
+
+  /visual/character-study:
+    post:
+      summary: Generate consistent character views
+      description: Generates front and side views of a character to maintain consistency.
+      tags:
+        - Imagegen
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                character_description:
+                  type: string
+                reference_image_id:
+                  type: string
+      responses:
+        '200':
+          description: Multiple views generated
+
+  # API GATEWAY INDIVIDUAL ENDPOINTS (Port 8080)
+  /text/gen:
+    post:
+      summary: Individual text generation
+      description: Direct proxy to Ollama for text generation.
+      tags:
+        - Gateway-Individual
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                prompt:
+                  type: string
+                model:
+                  type: string
+                  default: "llama3.2"
+      responses:
+        '200':
+          description: Generated text
+
+  /text/continue:
+    post:
+      summary: Continue text
+      description: Continues a story or explanation from where it left off.
+      tags:
+        - Gateway-Individual
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+      responses:
+        '200':
+          description: Continued text
+
+  /visual/optimize-prompt:
+    post:
+      summary: Generate optimized prompt
+      description: Uses LLM to create a high-quality prompt for Image or Video generation based on a simple idea.
+      tags:
+        - Gateway-Individual
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                idea:
+                  type: string
+                target:
+                  type: string
+                  enum: [image, video]
+      responses:
+        '200':
+          description: Optimized prompt
+
+  /image/gen:
+    post:
+      summary: Individual image generation
+      description: Direct proxy to ComfyUI for image generation.
+      tags:
+        - Gateway-Individual
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                prompt:
+                  type: string
+                negative_prompt:
+                  type: string
+      responses:
+        '200':
+          description: Image generation started
+
+  /image/edit:
+    post:
+      summary: Individual image editing
+      description: Direct proxy to ComfyUI for image editing (img2img).
+      tags:
+        - Gateway-Individual
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                image_name:
+                  type: string
+                prompt:
+                  type: string
+                denoise:
+                  type: number
+                  default: 0.6
+      responses:
+        '200':
+          description: Image editing started
+
+  /video/gen:
+    post:
+      summary: Individual video generation
+      description: Direct proxy to ComfyUI for video generation (AnimateDiff).
+      tags:
+        - Gateway-Individual
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                prompt:
+                  type: string
+                frames:
+                  type: integer
+                  default: 16
+      responses:
+        '200':
+          description: Video generation started

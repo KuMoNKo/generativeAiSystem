@@ -1,0 +1,89 @@
+services:
+  ollama:
+    image: ollama/ollama:rocm
+    container_name: ollama
+    ports:
+      - "${OLLAMA_PORT}:11434"
+    volumes:
+      - ${STORAGE_PATH}/ollama:/root/.ollama
+    environment:
+      - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION}
+      - HIP_VISIBLE_DEVICES=${HIP_VISIBLE_DEVICES}
+      - PYTORCH_ROCM_ARCH=gfx1030
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - "44"
+      - "992"
+    networks:
+      - ai-network
+    restart: unless-stopped
+
+  imagegen:
+    build:
+      context: ./services/imagegen
+    container_name: imagegen
+    ports:
+      - "${IMAGEGEN_PORT}:8188"
+    volumes:
+      - ${STORAGE_PATH}/imagegen/models:/app/models
+      - ${STORAGE_PATH}/imagegen/output:/app/output
+      - ${STORAGE_PATH}/imagegen/input:/app/input
+    environment:
+      - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION}
+      - HIP_VISIBLE_DEVICES=${HIP_VISIBLE_DEVICES}
+      - PYTORCH_ROCM_ARCH=gfx1030
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - "44"
+      - "992"
+    networks:
+      - ai-network
+    restart: unless-stopped
+  # [SKIPPED] acestep:
+  #   build:
+  #     context: ./services/acestep
+  #   container_name: acestep
+  #   ports:
+  #     - "12000:8000"
+  #     - "12001:7865"
+  #   volumes:
+  #     - ${STORAGE_PATH}/acestep/checkpoints:/app/checkpoints
+  #     - ${STORAGE_PATH}/acestep/outputs:/app/outputs
+  #   environment:
+  #     - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION}
+  #     - HIP_VISIBLE_DEVICES=${HIP_VISIBLE_DEVICES}
+  #     - PYTORCH_ROCM_ARCH=gfx1030
+  #   devices:
+  #     - /dev/kfd:/dev/kfd
+  #     - /dev/dri:/dev/dri
+  #   group_add:
+  #     - "44"
+  #     - "992"
+  #   networks:
+  #     - ai-network
+  #   restart: unless-stopped
+
+  api-gateway:
+    build:
+      context: ./api-gateway
+    container_name: api-gateway
+    ports:
+      - "${GATEWAY_PORT}:8080"
+    environment:
+      - API_KEY=${API_KEY}
+      - OLLAMA_INTERNAL_URL=http://ollama:11434
+      - COMFYUI_INTERNAL_URL=http://imagegen:8188
+    networks:
+      - ai-network
+    depends_on:
+      - ollama
+      - imagegen
+    restart: unless-stopped
+
+networks:
+  ai-network:
+    driver: bridge

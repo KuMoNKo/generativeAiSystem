@@ -10,7 +10,7 @@ Plataforma de IA generativa optimizada para GPUs AMD (probado en RX 6750 XT) uti
 ├── .env                     # Variables de entorno y configuración de GPU
 ├── services/                # Dockerfiles y lógica de servicios
 │   ├── ollama/              # API de gestión para Ollama
-│   ├── musicgen/            # Generación de Audio
+│   ├── musicgen/            # [SKIPPED] Generación de Audio
 │   ├── imagegen/            # Generación y edición de Imágenes
 │   └── videogen/            # Generación de Video
 ├── api-gateway/             # API Gateway Express.js (Bridge para React)
@@ -45,11 +45,12 @@ Plataforma de IA generativa optimizada para GPUs AMD (probado en RX 6750 XT) uti
     ```
 
 ## **Servicios Incluidos**
-- **Ollama (Puerto 11000):** Motor de LLM.
-- **MusicGen (Puerto 11001):** Generación de audio mediante AudioCraft.
-- **ImageGen (Puerto 11002):** Generación y edición de imágenes.
-- **VideoGen (Puerto 11003):** Generación de video.
-- **API Gateway (Puerto 8080):** Punto de entrada único para aplicaciones Frontend.
+- **Ollama (Puerto 11000):** Motor de LLM optimizado para ROCm (Llama 3.2).
+- **ImageGen & VideoGen (Puerto 11002):** Generación y edición de imágenes (SDXL) y video (AnimateDiff) mediante ComfyUI.
+- **API Gateway (Puerto 8080):** [PENDIENTE] Punto de entrada único para aplicaciones Frontend.
+
+## **Servicios Eliminados/Omitidos**
+- **MusicGen / ACE-Step:** Eliminados para optimizar el almacenamiento y priorizar la generación de imagen/video en GPUs con 12GB VRAM.
 
 ## **Solución de Problemas**
 - **Error de permisos GPU:** Verifica que los dispositivos `/dev/kfd` y `/dev/dri` tengan permisos de lectura/escritura y que el usuario esté en los grupos correctos.

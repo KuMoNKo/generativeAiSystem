@@ -1,1 +1,6 @@
 .env
+.gemini/
+.github/
+gha-creds-*.json
+storage/
+api-gateway/node_modules
