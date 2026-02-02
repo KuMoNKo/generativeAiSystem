@@ -11,11 +11,13 @@ Plataforma de IA generativa optimizada para GPUs AMD (probado en RX 6750 XT) uti
 ├── services/                # Dockerfiles y lógica de servicios
 │   ├── ollama/              # API de gestión para Ollama
 │   ├── musicgen/            # [SKIPPED] Generación de Audio
-│   ├── imagegen/            # Generación y edición de Imágenes
-│   └── videogen/            # Generación de Video
-├── api-gateway/             # API Gateway Express.js (Bridge para React)
-├── storage/                 # Volúmenes persistentes (Modelos y Salidas)
-└── scripts/                 # Utilidades de mantenimiento
+│   └── imagegen/            # Generación y edición de Imágenes/Video (ComfyUI)
+├── api-gateway/             # API Gateway Express.js (Punto de entrada único)
+├── storage/                 # Volúmenes persistentes
+│   ├── gateway/output/      # Resultados finales (JSON, Imágenes, Video)
+│   ├── imagegen/            # Modelos y entradas de ComfyUI
+│   └── ollama/              # Modelos de LLM
+└── tests/                   # Suite de pruebas automatizadas
 ```
 
 ## **Requisitos Previos**
@@ -24,14 +26,13 @@ Plataforma de IA generativa optimizada para GPUs AMD (probado en RX 6750 XT) uti
 2.  **Permisos:** El usuario debe pertenecer a los grupos `video` y `render`.
     ```bash
     sudo usermod -aG video,render $USER
-    # Reiniciar sesión después de ejecutar
     ```
 3.  **Docker & Compose:** Docker Engine v24+ y Docker Compose V2.
 
 ## **Instalación y Despliegue**
 
 1.  **Configurar variables:**
-    Edita el archivo `.env` para ajustar la API_KEY y los límites de VRAM si es necesario.
+    Edita el archivo `.env` para ajustar la `API_KEY` y los límites de VRAM si es necesario.
 
 2.  **Construir e iniciar:**
     ```bash
@@ -39,20 +40,30 @@ Plataforma de IA generativa optimizada para GPUs AMD (probado en RX 6750 XT) uti
     docker compose up -d
     ```
 
-3.  **Descargar modelos iniciales (Ollama):**
+3.  **Descargar modelos iniciales:**
     ```bash
-    curl http://localhost:11434/api/pull -d '{"name": "phi3:mini"}'
+    # Ollama
+    docker exec -it ollama ollama run llama3.2
     ```
 
 ## **Servicios Incluidos**
+- **API Gateway (Puerto 8080):** Punto de entrada único con autenticación (`x-api-key`). 
+    - Orquestación de personajes (`/agent/character`).
+    - Generación individual de texto, imagen y video.
+    - Persistencia automática de resultados en `storage/gateway/output/`.
 - **Ollama (Puerto 11000):** Motor de LLM optimizado para ROCm (Llama 3.2).
-- **ImageGen & VideoGen (Puerto 11002):** Generación y edición de imágenes (SDXL) y video (AnimateDiff) mediante ComfyUI.
-- **API Gateway (Puerto 8080):** [PENDIENTE] Punto de entrada único para aplicaciones Frontend.
+- **ImageGen & VideoGen (Puerto 11002):** Generación y edición de imágenes (SD 1.5) y video (AnimateDiff) mediante ComfyUI.
+- **API Gateway (Puerto 8080):** Punto de entrada único para aplicaciones Frontend.
 
 ## **Servicios Eliminados/Omitidos**
 - **MusicGen / ACE-Step:** Eliminados para optimizar el almacenamiento y priorizar la generación de imagen/video en GPUs con 12GB VRAM.
 
+## **Ejecución de Tests**
+Para verificar la integridad de la plataforma:
+```bash
+python3 tests/test_gateway.py
+```
+
 ## **Solución de Problemas**
-- **Error de permisos GPU:** Verifica que los dispositivos `/dev/kfd` y `/dev/dri` tengan permisos de lectura/escritura y que el usuario esté en los grupos correctos.
-- **VRAM Insuficiente:** Ajusta `PYTORCH_HIP_ALLOC_CONF` en el `.env` para fragmentar la memoria de forma más agresiva.
-- **Incompatibilidad de arquitectura:** La variable `HSA_OVERRIDE_GFX_VERSION=10.3.0` es necesaria para que las GPUs Navi 22 (como la 6750 XT) sean compatibles con librerías compiladas para Navi 21.
+- **VRAM Insuficiente (12GB):** El sistema está configurado con `--lowvram` y usa SD 1.5 para maximizar la estabilidad. Evita ejecutar múltiples modelos pesados simultáneamente.
+- **Error HIP:** Revisa el archivo `GEMINI.md` (Sección 10) para detalles sobre la configuración de memoria optimizada.

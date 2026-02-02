@@ -31,4 +31,4 @@ ENV PYTORCH_ROCM_ARCH=gfx1030
 
 EXPOSE 8188
 
-ENTRYPOINT ["python3", "main.py", "--listen", "0.0.0.0", "--port", "8188"]
+ENTRYPOINT ["python3", "main.py", "--listen", "0.0.0.0", "--port", "8188", "--lowvram"]

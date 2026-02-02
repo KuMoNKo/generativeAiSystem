@@ -34,6 +34,7 @@ services:
       - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION}
       - HIP_VISIBLE_DEVICES=${HIP_VISIBLE_DEVICES}
       - PYTORCH_ROCM_ARCH=gfx1030
+      - PYTORCH_HIP_ALLOC_CONF=garbage_collection_threshold:0.8,max_split_size_mb:128
     devices:
       - /dev/kfd:/dev/kfd
       - /dev/dri:/dev/dri
@@ -43,6 +44,8 @@ services:
     networks:
       - ai-network
     restart: unless-stopped
+    entrypoint: [ "python3", "main.py" ]
+    command: [ "--listen", "0.0.0.0", "--port", "8188", "--lowvram", "--preview-method", "auto" ]
   # [SKIPPED] acestep:
   #   build:
   #     context: ./services/acestep
@@ -66,13 +69,14 @@ services:
   #   networks:
   #     - ai-network
   #   restart: unless-stopped
-
   api-gateway:
     build:
       context: ./api-gateway
     container_name: api-gateway
     ports:
       - "${GATEWAY_PORT}:8080"
+    volumes:
+      - ${STORAGE_PATH}/gateway:/app/storage/gateway
     environment:
       - API_KEY=${API_KEY}
       - OLLAMA_INTERNAL_URL=http://ollama:11434

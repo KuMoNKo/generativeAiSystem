@@ -2,6 +2,8 @@ const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
 const morgan = require('morgan');
+const path = require('path');
+const fs = require('fs');
 
 require('dotenv').config({ path: '../.env' });
 
@@ -26,6 +28,88 @@ const authenticate = (req, res, next) => {
     }
 };
 
+// --- UTILS ---
+
+const getOutputPath = () => {
+    const now = new Date();
+    const folderName = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+    const dir = path.join(__dirname, 'storage', 'gateway', 'output', folderName);
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+    }
+    return dir;
+};
+
+const saveJson = (data, type, dir) => {
+    const filename = `${type}_${Date.now()}.json`;
+    fs.writeFileSync(path.join(dir, filename), JSON.stringify(data, null, 2));
+    return filename;
+};
+
+const downloadFile = async (filename, subfolder, type, targetDir) => {
+    try {
+        console.log(`Downloading ${filename} to ${targetDir}...`);
+        const response = await axios({
+            method: 'get',
+            url: `${COMFYUI_URL}/view`,
+            params: { filename, subfolder, type },
+            responseType: 'stream'
+        });
+        const writer = fs.createWriteStream(path.join(targetDir, filename));
+        response.data.pipe(writer);
+        return new Promise((resolve, reject) => {
+            writer.on('finish', () => {
+                console.log(`Successfully downloaded ${filename}`);
+                resolve();
+            });
+            writer.on('error', (err) => {
+                console.error(`Error writing ${filename}:`, err.message);
+                reject(err);
+            });
+        });
+    } catch (error) {
+        console.error(`Failed to download ${filename}:`, error.message);
+    }
+};
+
+const pollAndDownload = async (prompt_id, targetDir) => {
+    console.log(`Starting poll for prompt_id: ${prompt_id}`);
+    let completed = false;
+    let attempts = 0;
+    const maxAttempts = 100;
+
+    while (!completed && attempts < maxAttempts) {
+        try {
+            const response = await axios.get(`${COMFYUI_URL}/history/${prompt_id}`);
+            const history = response.data[prompt_id];
+            if (history && history.outputs) {
+                console.log(`Prompt ${prompt_id} completed. Downloading outputs...`);
+                for (const nodeId in history.outputs) {
+                    const output = history.outputs[nodeId];
+                    if (output.images) {
+                        for (const img of output.images) {
+                            await downloadFile(img.filename, img.subfolder, img.type, targetDir);
+                        }
+                    }
+                    if (output.gifs) {
+                        for (const vid of output.gifs) {
+                            await downloadFile(vid.filename, vid.subfolder, vid.type, targetDir);
+                        }
+                    }
+                }
+                completed = true;
+            }
+        } catch (error) {
+            console.error(`Polling error for ${prompt_id}:`, error.message);
+        }
+        if (!completed) {
+            await new Promise(r => setTimeout(resolve => r(), 3000));
+            attempts++;
+        }
+    }
+    if (!completed) console.warn(`Polling timed out for ${prompt_id}`);
+};
+
 // --- PROXY ENDPOINTS ---
 
 app.all(['/api/generate', '/api/chat', '/api/tags'], authenticate, async (req, res) => {
@@ -48,15 +132,14 @@ app.all(['/api/generate', '/api/chat', '/api/tags'], authenticate, async (req, r
         if (isStream) {
             response.data.pipe(res);
         } else {
+            if (req.path === '/api/generate' || req.path === '/api/chat') {
+                saveJson({ request: req.body, response: response.data }, 'proxy_ollama', getOutputPath());
+            }
             res.status(response.status).json(response.data);
         }
     } catch (error) {
         console.error('Ollama Proxy Error:', error.message);
-        if (error.response) {
-            res.status(error.response.status).json(error.response.data);
-        } else {
-            res.status(500).json({ error: 'Ollama service unreachable', message: error.message });
-        }
+        res.status(error.response?.status || 500).json(error.response?.data || { error: 'Ollama service error' });
     }
 });
 
@@ -78,14 +161,15 @@ app.all(['/prompt', '/history', '/history/:id', '/view', '/upload/image'], authe
         }
 
         const response = await axios(config);
+        if (req.path === '/prompt') {
+            const dir = getOutputPath();
+            saveJson({ request: req.body, response: response.data }, 'proxy_comfy', dir);
+            pollAndDownload(response.data.prompt_id, dir); // Background task
+        }
         res.status(response.status).json(response.data);
     } catch (error) {
         console.error('ComfyUI Proxy Error:', error.message);
-        if (error.response) {
-            res.status(error.response.status).json(error.response.data);
-        } else {
-            res.status(500).json({ error: 'ComfyUI service unreachable', message: error.message });
-        }
+        res.status(error.response?.status || 500).json(error.response?.data || { error: 'ComfyUI service error' });
     }
 });
 
@@ -93,9 +177,10 @@ app.all(['/prompt', '/history', '/history/:id', '/view', '/upload/image'], authe
 
 app.post('/text/gen', authenticate, async (req, res) => {
     try {
-        const { prompt, model = 'llama3.2' } = req.body;
-        const response = await axios.post(`${OLLAMA_URL}/api/generate`, { model, prompt, stream: false });
-        res.json({ response: response.data.response });
+        const { prompt, model = 'llama3.2', seed = Math.floor(Math.random() * 1000000) } = req.body;
+        const response = await axios.post(`${OLLAMA_URL}/api/generate`, { model, prompt, stream: false, options: { seed } });
+        saveJson({ request: req.body, response: response.data }, 'text_gen', getOutputPath());
+        res.json({ response: response.data.response, seed });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -103,10 +188,23 @@ app.post('/text/gen', authenticate, async (req, res) => {
 
 app.post('/text/expand', authenticate, async (req, res) => {
     try {
-        const { text, context = 'General' } = req.body;
+        const { text, context = 'General', seed = Math.floor(Math.random() * 1000000) } = req.body;
         const prompt = `Expand the following text within a ${context} context: "${text}"`;
-        const response = await axios.post(`${OLLAMA_URL}/api/generate`, { model: 'llama3.2', prompt, stream: false });
-        res.json({ expanded: response.data.response });
+        const response = await axios.post(`${OLLAMA_URL}/api/generate`, { model: 'llama3.2', prompt, stream: false, options: { seed } });
+        saveJson({ request: req.body, response: response.data }, 'text_expand', getOutputPath());
+        res.json({ expanded: response.data.response, seed });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/text/continue', authenticate, async (req, res) => {
+    try {
+        const { text, seed = Math.floor(Math.random() * 1000000) } = req.body;
+        const prompt = `Continue the following story or text naturally: "${text}"`;
+        const response = await axios.post(`${OLLAMA_URL}/api/generate`, { model: 'llama3.2', prompt, stream: false, options: { seed } });
+        saveJson({ request: req.body, response: response.data }, 'text_continue', getOutputPath());
+        res.json({ continuation: response.data.response, seed });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -114,64 +212,11 @@ app.post('/text/expand', authenticate, async (req, res) => {
 
 app.post('/visual/optimize-prompt', authenticate, async (req, res) => {
     try {
-        const { idea, target = 'image' } = req.body;
+        const { idea, target = 'image', seed = Math.floor(Math.random() * 1000000) } = req.body;
         const prompt = `High-quality Stable Diffusion prompt for ${target}: "${idea}"`;
-        const response = await axios.post(`${OLLAMA_URL}/api/generate`, { model: 'llama3.2', prompt, stream: false });
-        res.json({ optimized_prompt: response.data.response });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-app.post('/agent/character', authenticate, async (req, res) => {
-    try {
-        const { description } = req.body;
-        console.log(`Generating character for: ${description}`);
-        const dataPrompt = `Generate a character based on: "${description}". 
-        Output ONLY a JSON object with these keys: "name", "history", "appearance", "skills" (array), "visual_prompt".`;
-        
-        const dataResponse = await axios.post(`${OLLAMA_URL}/api/generate`, { 
-            model: 'llama3.2', 
-            prompt: dataPrompt, 
-            format: 'json', 
-            stream: false 
-        });
-        
-        console.log('LLM Response:', dataResponse.data.response);
-        
-        let characterData;
-        try {
-            characterData = JSON.parse(dataResponse.data.response);
-        } catch (e) {
-            console.error('JSON Parse Error:', e.message);
-            return res.status(500).json({ error: 'Invalid JSON from LLM', raw: dataResponse.data.response });
-        }
-
-        const workflow = {
-            "3": { "class_type": "KSampler", "inputs": { "cfg": 8, "denoise": 1, "model": ["4", 0], "negative": ["7", 0], "positive": ["6", 0], "sampler_name": "euler", "scheduler": "normal", "seed": 42, "steps": 20, "latent_image": ["5", 0] } },
-            "4": { "class_type": "CheckpointLoaderSimple", "inputs": { "ckpt_name": "juggernautXL_v9.safetensors" } },
-            "5": { "class_type": "EmptyLatentImage", "inputs": { "batch_size": 1, "height": 512, "width": 512 } },
-            "6": { "class_type": "CLIPTextEncode", "inputs": { "clip": ["4", 1], "text": characterData.visual_prompt || "character portrait" } },
-            "7": { "class_type": "CLIPTextEncode", "inputs": { "clip": ["4", 1], "text": "low quality, blurry" } },
-            "8": { "class_type": "VAEDecode", "inputs": { "samples": ["3", 0], "vae": ["4", 2] } },
-            "9": { "class_type": "SaveImage", "inputs": { "filename_prefix": "char", "images": ["8", 0] } }
-        };
-
-        const imageResponse = await axios.post(`${COMFYUI_URL}/prompt`, { prompt: workflow });
-        res.json({ character: characterData, image_prompt_id: imageResponse.data.prompt_id });
-    } catch (error) {
-        console.error('Agent Character ORCHESTRATION Error:', error.message);
-        if (error.response) console.error('Error Data:', error.response.data);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-app.post('/text/continue', authenticate, async (req, res) => {
-    try {
-        const { text } = req.body;
-        const prompt = `Continue the following story or text naturally: "${text}"`;
-        const response = await axios.post(`${OLLAMA_URL}/api/generate`, { model: 'llama3.2', prompt, stream: false });
-        res.json({ continuation: response.data.response });
+        const response = await axios.post(`${OLLAMA_URL}/api/generate`, { model: 'llama3.2', prompt, stream: false, options: { seed } });
+        saveJson({ request: req.body, response: response.data }, 'visual_optimize', getOutputPath());
+        res.json({ optimized_prompt: response.data.response, seed });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -179,10 +224,10 @@ app.post('/text/continue', authenticate, async (req, res) => {
 
 app.post('/image/gen', authenticate, async (req, res) => {
     try {
-        const { prompt, negative_prompt = "blurry, low quality" } = req.body;
+        const { prompt, negative_prompt = "blurry, low quality", seed = Math.floor(Math.random() * 1000000), steps = 20 } = req.body;
         const workflow = {
-            "3": { "class_type": "KSampler", "inputs": { "cfg": 8, "denoise": 1, "model": ["4", 0], "negative": ["7", 0], "positive": ["6", 0], "sampler_name": "euler", "scheduler": "normal", "seed": Math.floor(Math.random() * 1000000), "steps": 20, "latent_image": ["5", 0] } },
-            "4": { "class_type": "CheckpointLoaderSimple", "inputs": { "ckpt_name": "juggernautXL_v9.safetensors" } },
+            "3": { "class_type": "KSampler", "inputs": { "cfg": 8, "denoise": 1, "model": ["4", 0], "negative": ["7", 0], "positive": ["6", 0], "sampler_name": "euler", "scheduler": "normal", "seed": seed, "steps": steps, "latent_image": ["5", 0] } },
+            "4": { "class_type": "CheckpointLoaderSimple", "inputs": { "ckpt_name": "v1-5-pruned-emaonly.safetensors" } },
             "5": { "class_type": "EmptyLatentImage", "inputs": { "batch_size": 1, "height": 512, "width": 512 } },
             "6": { "class_type": "CLIPTextEncode", "inputs": { "clip": ["4", 1], "text": prompt } },
             "7": { "class_type": "CLIPTextEncode", "inputs": { "clip": ["4", 1], "text": negative_prompt } },
@@ -190,7 +235,10 @@ app.post('/image/gen', authenticate, async (req, res) => {
             "9": { "class_type": "SaveImage", "inputs": { "filename_prefix": "gen", "images": ["8", 0] } }
         };
         const response = await axios.post(`${COMFYUI_URL}/prompt`, { prompt: workflow });
-        res.json(response.data);
+        const dir = getOutputPath();
+        saveJson({ request: req.body, workflow, response: response.data }, 'image_gen', dir);
+        pollAndDownload(response.data.prompt_id, dir);
+        res.json({ ...response.data, seed, steps });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -198,19 +246,22 @@ app.post('/image/gen', authenticate, async (req, res) => {
 
 app.post('/image/edit', authenticate, async (req, res) => {
     try {
-        const { image_name, prompt, denoise = 0.6 } = req.body;
+        const { image_name, prompt, denoise = 0.6, seed = Math.floor(Math.random() * 1000000), steps = 20 } = req.body;
         const workflow = {
             "10": { "class_type": "LoadImage", "inputs": { "image": image_name } },
             "11": { "class_type": "VAEEncode", "inputs": { "pixels": ["10", 0], "vae": ["4", 2] } },
-            "3": { "class_type": "KSampler", "inputs": { "cfg": 8, "denoise": denoise, "model": ["4", 0], "negative": ["7", 0], "positive": ["6", 0], "sampler_name": "euler", "scheduler": "normal", "seed": 42, "steps": 20, "latent_image": ["11", 0] } },
-            "4": { "class_type": "CheckpointLoaderSimple", "inputs": { "ckpt_name": "juggernautXL_v9.safetensors" } },
+            "3": { "class_type": "KSampler", "inputs": { "cfg": 8, "denoise": denoise, "model": ["4", 0], "negative": ["7", 0], "positive": ["6", 0], "sampler_name": "euler", "scheduler": "normal", "seed": seed, "steps": steps, "latent_image": ["11", 0] } },
+            "4": { "class_type": "CheckpointLoaderSimple", "inputs": { "ckpt_name": "v1-5-pruned-emaonly.safetensors" } },
             "6": { "class_type": "CLIPTextEncode", "inputs": { "clip": ["4", 1], "text": prompt } },
             "7": { "class_type": "CLIPTextEncode", "inputs": { "clip": ["4", 1], "text": "low quality" } },
             "8": { "class_type": "VAEDecode", "inputs": { "samples": ["3", 0], "vae": ["4", 2] } },
             "9": { "class_type": "SaveImage", "inputs": { "filename_prefix": "edit", "images": ["8", 0] } }
         };
         const response = await axios.post(`${COMFYUI_URL}/prompt`, { prompt: workflow });
-        res.json(response.data);
+        const dir = getOutputPath();
+        saveJson({ request: req.body, workflow, response: response.data }, 'image_edit', dir);
+        pollAndDownload(response.data.prompt_id, dir);
+        res.json({ ...response.data, seed, steps });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -218,7 +269,7 @@ app.post('/image/edit', authenticate, async (req, res) => {
 
 app.post('/video/gen', authenticate, async (req, res) => {
     try {
-        const { prompt, frames = 16 } = req.body;
+        const { prompt, frames = 16, seed = Math.floor(Math.random() * 1000000), steps = 15 } = req.body;
         const workflow = {
             "1": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "v1-5-pruned-emaonly.safetensors"}},
             "2": {"class_type": "EmptyLatentImage", "inputs": {"batch_size": frames, "height": 512, "width": 512}},
@@ -226,12 +277,41 @@ app.post('/video/gen', authenticate, async (req, res) => {
             "4": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["1", 1], "text": "low quality, static"}},
             "5": {"class_type": "ADE_AnimateDiffLoaderWithContext", "inputs": {"model_name": "mm_sd_v15_v2.ckpt", "beta_schedule": "sqrt_linear (AnimateDiff)", "model": ["1", 0], "context_options": ["6", 0]}},
             "6": {"class_type": "ADE_AnimateDiffUniformContextOptions", "inputs": {"context_length": 16, "context_stride": 1, "context_overlap": 4, "closed_loop": false, "context_schedule": "uniform"}},
-            "7": {"class_type": "KSampler", "inputs": {"cfg": 8, "denoise": 1, "latent_image": ["2", 0], "model": ["5", 0], "negative": ["4", 0], "positive": ["3", 0], "sampler_name": "euler", "scheduler": "normal", "seed": 42, "steps": 15}},
+            "7": {"class_type": "KSampler", "inputs": {"cfg": 8, "denoise": 1, "latent_image": ["2", 0], "model": ["5", 0], "negative": ["4", 0], "positive": ["3", 0], "sampler_name": "euler", "scheduler": "normal", "seed": seed, "steps": steps}},
             "8": {"class_type": "VAEDecode", "inputs": {"samples": ["7", 0], "vae": ["1", 2]}},
             "9": {"class_type": "VHS_VideoCombine", "inputs": {"images": ["8", 0], "format": "video/h264-mp4", "filename_prefix": "video", "fps": 8, "frame_rate": 8, "loop_count": 0, "save_output": true, "pingpong": false}}
         };
         const response = await axios.post(`${COMFYUI_URL}/prompt`, { prompt: workflow });
-        res.json(response.data);
+        const dir = getOutputPath();
+        saveJson({ request: req.body, workflow, response: response.data }, 'video_gen', dir);
+        pollAndDownload(response.data.prompt_id, dir);
+        res.json({ ...response.data, seed, steps });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/agent/character', authenticate, async (req, res) => {
+    try {
+        const { description, seed = Math.floor(Math.random() * 1000000), steps = 20 } = req.body;
+        const dataPrompt = `Generate a character based on: "${description}". Output ONLY a JSON object with these keys: "name", "history", "appearance", "skills" (array), "visual_prompt".`;
+        const dataResponse = await axios.post(`${OLLAMA_URL}/api/generate`, { model: 'llama3.2', prompt: dataPrompt, format: 'json', stream: false, options: { seed } });
+        const characterData = JSON.parse(dataResponse.data.response);
+        const workflow = {
+            "3": { "class_type": "KSampler", "inputs": { "cfg": 8, "denoise": 1, "model": ["4", 0], "negative": ["7", 0], "positive": ["6", 0], "sampler_name": "euler", "scheduler": "normal", "seed": seed, "steps": steps, "latent_image": ["5", 0] } },
+            "4": { "class_type": "CheckpointLoaderSimple", "inputs": { "ckpt_name": "v1-5-pruned-emaonly.safetensors" } },
+            "5": { "class_type": "EmptyLatentImage", "inputs": { "batch_size": 1, "height": 512, "width": 512 } },
+            "6": { "class_type": "CLIPTextEncode", "inputs": { "clip": ["4", 1], "text": characterData.visual_prompt || "character portrait" } },
+            "7": { "class_type": "CLIPTextEncode", "inputs": { "clip": ["4", 1], "text": "low quality, blurry" } },
+            "8": { "class_type": "VAEDecode", "inputs": { "samples": ["3", 0], "vae": ["4", 2] } },
+            "9": { "class_type": "SaveImage", "inputs": { "filename_prefix": "char", "images": ["8", 0] } }
+        };
+        const imageResponse = await axios.post(`${COMFYUI_URL}/prompt`, { prompt: workflow });
+        const dir = getOutputPath();
+        const result = { character: characterData, image_prompt_id: imageResponse.data.prompt_id, seed, steps };
+        saveJson({ request: req.body, workflow, response: result }, 'agent_character', dir);
+        pollAndDownload(imageResponse.data.prompt_id, dir);
+        res.json(result);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

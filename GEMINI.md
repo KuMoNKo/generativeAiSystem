@@ -83,4 +83,15 @@ Este documento resume las acciones realizadas por el agente Gemini para sanear y
     - Proxy autenticado a Ollama y ComfyUI.
     - Endpoints simplificados (`/text/gen`, `/image/gen`, etc.).
     - Orquestación avanzada (`/agent/character`).
-- **Seguridad:** Validación de `x-api-key`.
+    - Soporte global para parámetros `seed` y `steps`.
+- **Persistencia de Activos:**
+    - Los outputs (JSON de texto, imágenes y videos) se guardan automáticamente en `storage/gateway/output/YYYYMMDD_HHmm/`.
+    - Implementado sistema de sondeo (polling) para descargar activos desde ComfyUI al Gateway tras finalizar la generación.
+- **Seguridad:** Validación obligatoria de `x-api-key`.
+
+### 10. Optimizaciones de Estabilidad (VRAM 12GB)
+- **Modelo Base:** Cambio de SDXL a SD 1.5 (`v1-5-pruned-emaonly.safetensors`) para generación individual y orquestada, evitando errores HIP por falta de memoria.
+- **Configuración Docker:**
+    - Activado modo `--lowvram` en ComfyUI.
+    - Ajustado `PYTORCH_HIP_ALLOC_CONF` para fragmentación optimizada en ROCm.
+    - Implementado `entrypoint` y `command` limpios en `docker-compose.yml`.
