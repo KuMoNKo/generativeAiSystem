@@ -14,7 +14,11 @@ const API_KEY = process.env.API_KEY || 'local_dev_key';
 const OLLAMA_URL = process.env.OLLAMA_INTERNAL_URL || 'http://ollama:11434';
 const COMFYUI_URL = process.env.COMFYUI_INTERNAL_URL || 'http://imagegen:8188';
 
-app.use(cors());
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key']
+}));
 app.use(morgan('dev'));
 app.use(express.json());
 
@@ -55,12 +59,13 @@ const downloadFile = async (filename, subfolder, type, targetDir) => {
             params: { filename, subfolder, type },
             responseType: 'stream'
         });
-        const writer = fs.createWriteStream(path.join(targetDir, filename));
+        const filePath = path.join(targetDir, filename);
+        const writer = fs.createWriteStream(filePath);
         response.data.pipe(writer);
         return new Promise((resolve, reject) => {
             writer.on('finish', () => {
                 console.log(`Successfully downloaded ${filename}`);
-                resolve();
+                resolve(filePath);
             });
             writer.on('error', (err) => {
                 console.error(`Error writing ${filename}:`, err.message);
@@ -69,6 +74,7 @@ const downloadFile = async (filename, subfolder, type, targetDir) => {
         });
     } catch (error) {
         console.error(`Failed to download ${filename}:`, error.message);
+        return null;
     }
 };
 
@@ -77,6 +83,7 @@ const pollAndDownload = async (prompt_id, targetDir) => {
     let completed = false;
     let attempts = 0;
     const maxAttempts = 100;
+    const downloadedFiles = [];
 
     while (!completed && attempts < maxAttempts) {
         try {
@@ -88,12 +95,14 @@ const pollAndDownload = async (prompt_id, targetDir) => {
                     const output = history.outputs[nodeId];
                     if (output.images) {
                         for (const img of output.images) {
-                            await downloadFile(img.filename, img.subfolder, img.type, targetDir);
+                            const filePath = await downloadFile(img.filename, img.subfolder, img.type, targetDir);
+                            if (filePath) downloadedFiles.push(filePath);
                         }
                     }
                     if (output.gifs) {
                         for (const vid of output.gifs) {
-                            await downloadFile(vid.filename, vid.subfolder, vid.type, targetDir);
+                            const filePath = await downloadFile(vid.filename, vid.subfolder, vid.type, targetDir);
+                            if (filePath) downloadedFiles.push(filePath);
                         }
                     }
                 }
@@ -103,11 +112,12 @@ const pollAndDownload = async (prompt_id, targetDir) => {
             console.error(`Polling error for ${prompt_id}:`, error.message);
         }
         if (!completed) {
-            await new Promise(r => setTimeout(resolve => r(), 3000));
+            await new Promise(resolve => setTimeout(resolve, 3000));
             attempts++;
         }
     }
     if (!completed) console.warn(`Polling timed out for ${prompt_id}`);
+    return downloadedFiles;
 };
 
 // --- PROXY ENDPOINTS ---
@@ -237,8 +247,22 @@ app.post('/image/gen', authenticate, async (req, res) => {
         const response = await axios.post(`${COMFYUI_URL}/prompt`, { prompt: workflow });
         const dir = getOutputPath();
         saveJson({ request: req.body, workflow, response: response.data }, 'image_gen', dir);
-        pollAndDownload(response.data.prompt_id, dir);
-        res.json({ ...response.data, seed, steps });
+        
+        const downloadedFiles = await pollAndDownload(response.data.prompt_id, dir);
+        
+        let base64Image = "";
+        if (downloadedFiles && downloadedFiles.length > 0) {
+            const firstImagePath = downloadedFiles[0];
+            const imageBuffer = fs.readFileSync(firstImagePath);
+            base64Image = `data:image/png;base64,${imageBuffer.toString('base64')}`;
+        }
+
+        res.json({ 
+            ...response.data, 
+            seed, 
+            steps,
+            image: base64Image
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -260,8 +284,22 @@ app.post('/image/edit', authenticate, async (req, res) => {
         const response = await axios.post(`${COMFYUI_URL}/prompt`, { prompt: workflow });
         const dir = getOutputPath();
         saveJson({ request: req.body, workflow, response: response.data }, 'image_edit', dir);
-        pollAndDownload(response.data.prompt_id, dir);
-        res.json({ ...response.data, seed, steps });
+        
+        const downloadedFiles = await pollAndDownload(response.data.prompt_id, dir);
+        
+        let base64Image = "";
+        if (downloadedFiles && downloadedFiles.length > 0) {
+            const firstImagePath = downloadedFiles[0];
+            const imageBuffer = fs.readFileSync(firstImagePath);
+            base64Image = `data:image/png;base64,${imageBuffer.toString('base64')}`;
+        }
+
+        res.json({ 
+            ...response.data, 
+            seed, 
+            steps,
+            image: base64Image
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -308,9 +346,24 @@ app.post('/agent/character', authenticate, async (req, res) => {
         };
         const imageResponse = await axios.post(`${COMFYUI_URL}/prompt`, { prompt: workflow });
         const dir = getOutputPath();
-        const result = { character: characterData, image_prompt_id: imageResponse.data.prompt_id, seed, steps };
+        
+        const downloadedFiles = await pollAndDownload(imageResponse.data.prompt_id, dir);
+        
+        let base64Image = "";
+        if (downloadedFiles && downloadedFiles.length > 0) {
+            const firstImagePath = downloadedFiles[0];
+            const imageBuffer = fs.readFileSync(firstImagePath);
+            base64Image = `data:image/png;base64,${imageBuffer.toString('base64')}`;
+        }
+
+        const result = { 
+            character: characterData, 
+            image_prompt_id: imageResponse.data.prompt_id, 
+            seed, 
+            steps,
+            image: base64Image
+        };
         saveJson({ request: req.body, workflow, response: result }, 'agent_character', dir);
-        pollAndDownload(imageResponse.data.prompt_id, dir);
         res.json(result);
     } catch (error) {
         res.status(500).json({ error: error.message });
