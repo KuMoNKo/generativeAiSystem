@@ -77,10 +77,14 @@ services:
       - "${GATEWAY_PORT}:8080"
     volumes:
       - ${STORAGE_PATH}/gateway:/app/storage/gateway
+      - ${STORAGE_PATH}/ollama:/root/.ollama
+      - ${STORAGE_PATH}/imagegen/models:/app/models_imagegen
     environment:
       - API_KEY=${API_KEY}
       - OLLAMA_INTERNAL_URL=http://ollama:11434
       - COMFYUI_INTERNAL_URL=http://imagegen:8188
+      - OLLAMA_MODELS_PATH=/root/.ollama
+      - IMAGEGEN_MODELS_PATH=/app/models_imagegen
     networks:
       - ai-network
     depends_on:

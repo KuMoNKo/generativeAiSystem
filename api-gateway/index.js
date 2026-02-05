@@ -21,9 +21,14 @@ app.use(cors({
 }));
 app.use(morgan('dev'));
 app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
 
 const authenticate = (req, res, next) => {
-    const apiKey = req.headers['x-api-key'];
+    // Skip authentication for the web UI itself if accessed via browser
+    if (req.path === '/' || req.path.endsWith('.html') || req.path.endsWith('.js') || req.path.endsWith('.css')) {
+        return next();
+    }
+    const apiKey = req.headers['x-api-key'] || req.query.api_key;
     if (apiKey === API_KEY) {
         next();
     } else {
@@ -31,6 +36,57 @@ const authenticate = (req, res, next) => {
         res.status(401).json({ error: 'Unauthorized: Invalid API Key' });
     }
 };
+
+app.use(authenticate);
+
+// --- MODEL MANAGEMENT ---
+
+app.get('/models', async (req, res) => {
+    try {
+        const ollamaModels = await axios.get(`${OLLAMA_URL}/api/tags`);
+        
+        const checkpointsDir = path.join(process.env.IMAGEGEN_MODELS_PATH || '/app/models_imagegen', 'checkpoints');
+        let imageModels = [];
+        if (fs.existsSync(checkpointsDir)) {
+            imageModels = fs.readdirSync(checkpointsDir).filter(f => f.endsWith('.safetensors') || f.endsWith('.ckpt'));
+        }
+
+        res.json({
+            text: ollamaModels.data.models.map(m => m.name),
+            image: imageModels
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/models/download', async (req, res) => {
+    const { type, name, url } = req.body;
+    try {
+        if (type === 'text') {
+            // Ollama pull
+            const response = await axios.post(`${OLLAMA_URL}/api/pull`, { name, stream: false });
+            return res.json({ message: `Started pulling text model ${name}`, detail: response.data });
+        } else if (type === 'image') {
+            if (!url) return res.status(400).json({ error: 'URL is required for image model download' });
+            
+            const fileName = name || url.split('/').pop();
+            const targetPath = path.join(process.env.IMAGEGEN_MODELS_PATH || '/app/models_imagegen', 'checkpoints', fileName);
+            
+            console.log(`Downloading image model from ${url} to ${targetPath}`);
+            const response = await axios({ method: 'get', url, responseType: 'stream' });
+            const writer = fs.createWriteStream(targetPath);
+            response.data.pipe(writer);
+            
+            writer.on('finish', () => res.json({ message: `Downloaded image model ${fileName}` }));
+            writer.on('error', (err) => res.status(500).json({ error: err.message }));
+        } else {
+            res.status(400).json({ error: 'Invalid model type' });
+        }
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 
 // --- UTILS ---
 
