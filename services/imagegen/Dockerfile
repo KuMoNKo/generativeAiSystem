@@ -18,11 +18,16 @@ RUN git clone https://github.com/comfyanonymous/ComfyUI.git .
 # Install requirements
 RUN pip install --no-cache-dir -r requirements.txt websocket-client torchsde opencv-python imageio-ffmpeg pandas
 
-# Install Custom Nodes for Video and Management
+# Install Custom Nodes for Video, Management and GGUF support
 RUN cd custom_nodes && \
     git clone https://github.com/Kosinkadink/ComfyUI-AnimateDiff-Evolved.git && \
     git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git && \
-    git clone https://github.com/ltdrdata/ComfyUI-Manager.git
+    git clone https://github.com/ltdrdata/ComfyUI-Manager.git && \
+    git clone https://github.com/city96/ComfyUI-GGUF.git
+
+# Install specific requirements for custom nodes
+RUN pip install --no-cache-dir -r custom_nodes/ComfyUI-VideoHelperSuite/requirements.txt && \
+    pip install --no-cache-dir -r custom_nodes/ComfyUI-GGUF/requirements.txt
 
 # Environment variables for ROCm
 ENV HSA_OVERRIDE_GFX_VERSION=10.3.0
